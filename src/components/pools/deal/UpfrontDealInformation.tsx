@@ -35,6 +35,7 @@ export const UpfrontDealInformation: React.FC<{
   poolHelpers: Funding
 }> = ({ pool, poolHelpers }) => {
   const { chainId, sponsorFee, upfrontDeal } = pool
+
   if (!upfrontDeal) {
     throw new Error('UpfrontDeal not found.')
   }
@@ -46,7 +47,7 @@ export const UpfrontDealInformation: React.FC<{
           title="Name"
           value={
             <ExternalLink
-              href={getExplorerUrl(pool.dealAddress || '', chainId)}
+              href={getExplorerUrl(pool.address, chainId)}
               label={parseDealName(upfrontDeal.name)}
             />
           }
@@ -140,6 +141,16 @@ export const UpfrontDealInformation: React.FC<{
           <Value>Sponsor Fee: {sponsorFee.formatted}</Value>
           <Value>Aelin protocol fee: 2%</Value>
         </InfoCell>
+        {!!pool.minimumPurchaseAmount && (
+          <InfoCell
+            title="Minimum investment"
+            tooltip={`The minimum amount of ${pool.investmentTokenSymbol} you may invest in this pool`}
+          >
+            <Value>
+              {pool.minimumPurchaseAmount.formatted} {pool.investmentTokenSymbol}
+            </Value>
+          </InfoCell>
+        )}
       </Column>
     </>
   )

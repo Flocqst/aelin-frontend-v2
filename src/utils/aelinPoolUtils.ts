@@ -1,4 +1,4 @@
-import { BigNumber } from '@ethersproject/bignumber'
+import { BigNumber, BigNumberish } from '@ethersproject/bignumber'
 import { HashZero } from '@ethersproject/constants'
 import Wei from '@synthetixio/wei'
 import addMilliseconds from 'date-fns/addMilliseconds'
@@ -163,7 +163,7 @@ export function dealExchangeRates(
   const dealToken = new Wei(dealTokenAmount, dealTokenDecimals, true)
 
   const investmentRate = dealToken.div(investmentToken)
-  const dealRate = new Wei(1).div(investmentRate)
+  const dealRate = new Wei(1, dealTokenDecimals).div(investmentRate)
 
   return {
     investmentPerDeal: {
@@ -187,7 +187,7 @@ export function upfrontDealExchangeRates(
   dealTokenDecimals: number,
 ) {
   const investmentRate = new Wei(purchaseTokenPerDealToken, investmentTokenDecimals, true)
-  const dealRate = new Wei(1).div(investmentRate)
+  const dealRate = new Wei(1, dealTokenDecimals).div(investmentRate)
 
   return {
     investmentPerDeal: {
@@ -468,6 +468,26 @@ export const getParsedNftCollectionRules = (
   })
 
   return nftCollectionRules
+}
+
+export const getMinimumPurchaseAmount = (
+  minimumPurchaseAmount: BigNumberish,
+  purchaseTokenDecimals: number,
+) => {
+  const purchaseMinimumInWei = new Wei(
+    minimumPurchaseAmount.toString(),
+    purchaseTokenDecimals,
+    true,
+  )
+
+  return {
+    raw: purchaseMinimumInWei.toBN(),
+    formatted: formatToken(
+      minimumPurchaseAmount.toString(),
+      purchaseTokenDecimals,
+      DISPLAY_DECIMALS,
+    ),
+  }
 }
 
 export function parseUpfrontDeal(pool: PoolCreated) {
