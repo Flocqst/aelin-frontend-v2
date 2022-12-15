@@ -1,34 +1,50 @@
 // Note: Add "type": "module" to the package.json before running the script
 import 'isomorphic-fetch'
 
-import { getAddress } from '@ethersproject/address'
 import cheerio from 'cheerio'
 import detenv from 'dotenv'
 import fs from 'fs/promises'
 import puppeteer, { Browser, Page } from 'puppeteer'
 
-import OpenSeaResponse from '../data/open-sea-response.json' assert { type: 'json' }
+import OpenSeaMainnetResponse from '../data/open-sea-mainnet-response.json' assert { type: 'json' }
+import OpenSeaPolygonResponse from '../data/open-sea-polygon-response.json' assert { type: 'json' }
 import QuixoticResponse from '../data/quixotic-response.json' assert { type: 'json' }
 import StratosResponse from '../data/stratos-response.json' assert { type: 'json' }
+import { Chains } from '@/src/constants/chains'
 
 detenv.config({ path: '.env.local' })
 
-const MAX_OPENSEA_ITEMS = 100
+const MAX_OPEN_SEA_MAINNET_ITEMS = 100
+const MAX_OPEN_SEA_POLYGON_ITEMS = 100
 const MAX_QUIXOTIC_ITEMS = 50
 const MAX_STRATOS_ITEMS = 50
 
-type OpenSeaCollection = {
+type OpenSeaMainnetCollection = {
   node: {
     isVerified: boolean
     logo: string
     name: string
-    nativePaymentAsset: { symbol: string }
     slug: string
     statsV2: {
       floorPrice: { eth: string } | null
       numOwners: number
       totalSupply: number
       totalVolume: { unit: string }
+    }
+  }
+}
+
+type OpenSeaPolygonCollection = {
+  node: {
+    isVerified: boolean
+    logo: string | null
+    name: string
+    slug: string
+    windowCollectionStats: {
+      floorPrice: { eth: string } | null
+      numOwners: number
+      totalSupply: number
+      volume: { unit: string }
     }
   }
 }
@@ -68,7 +84,6 @@ type NFTCollections = {
   totalSupply: number
   floorPrice: number | null
   totalVolume: number | null
-  paymentSymbol: string | null
   network: number
 }
 
@@ -114,23 +129,25 @@ const withPage = (browser: Browser) => async (fn: (page: Page) => void) => {
   }
 }
 
-const OpenSeaMetadataCollector = async () => {
-  const collections = OpenSeaResponse.data.rankings.edges.slice(0, MAX_OPENSEA_ITEMS)
+const OpenSeaMainnetMetadataCollector = async () => {
+  const collections = OpenSeaMainnetResponse.data.rankings.edges.slice(
+    0,
+    MAX_OPEN_SEA_MAINNET_ITEMS,
+  )
 
   const metadata = await withBrowser(async (browser) => {
     return Promise.all(
-      collections.map(async (collection: OpenSeaCollection, index: number) => {
+      collections.map(async (collection: OpenSeaMainnetCollection, index: number) => {
         const {
           isVerified,
           logo: imageUrl,
           name,
-          nativePaymentAsset,
           slug,
           statsV2: { floorPrice, numOwners, totalSupply, totalVolume },
         } = collection.node
 
         return withPage(browser)(async (page) => {
-          await page.goto(`https://opensea.io/collection/${slug}`)
+          await page.goto(`https://api.opensea.io/api/v1/collection/${slug}?format=json`)
 
           const pageData = await page.evaluate(() => ({
             html: document.documentElement.innerHTML,
@@ -138,37 +155,14 @@ const OpenSeaMetadataCollector = async () => {
 
           const $ = cheerio.load(pageData.html)
 
-          const links = $('a[target="_blank"]')
+          const content = $('pre').text()
 
-          let address = ''
-          let contractType = ''
-
-          links.each(function (this: cheerio.Element) {
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-            // @ts-ignore: this is not undefined
-            if ($(this).attr('href').includes('etherscan')) {
-              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-              // @ts-ignore: this is not undefined
-              address = getAddress($(this).attr('href').split('/').pop().split('#')[0])
-            }
-          })
-
-          if (address.length) {
-            // We need to use this approach to avoid a forbidden code response
-            await page.goto(`https://api.opensea.io/api/v1/asset_contract/${address}?format=json`)
-
-            const pageData = await page.evaluate(() => ({
-              html: document.documentElement.innerHTML,
-            }))
-
-            const $ = cheerio.load(pageData.html)
-
-            const content = $('pre').text()
-
-            const json = JSON.parse(content)
-
-            contractType = json.schema_name ? json.schema_name.toLowerCase() : ''
-          }
+          const json = JSON.parse(content)
+          const contractMetadata = json.collection.primary_asset_contracts[0]
+          const address = contractMetadata.address
+          const contractType = contractMetadata.schema_name
+            ? contractMetadata.schema_name.toLowerCase()
+            : ''
 
           return {
             id: index,
@@ -182,8 +176,7 @@ const OpenSeaMetadataCollector = async () => {
             contractType,
             floorPrice: floorPrice !== null ? Number(floorPrice.eth) : null,
             totalVolume: totalVolume !== null ? Number(totalVolume.unit) : null,
-            paymentSymbol: nativePaymentAsset !== null ? nativePaymentAsset.symbol : null,
-            network: 1,
+            network: Chains.mainnet,
             updatedAt: Date.now(),
           }
         })
@@ -199,7 +192,76 @@ const OpenSeaMetadataCollector = async () => {
   )
 
   return fs.writeFile(
-    `${process.cwd()}/public/data/nft-metadata/opensea-metadata.json`,
+    `${process.cwd()}/public/data/nft-metadata/open-sea-mainnet-metadata.json`,
+    JSON.stringify(metadataFiltered, null, 2),
+    'utf8',
+  )
+}
+
+const OpenSeaPolygonMetadataCollector = async () => {
+  const collections = OpenSeaPolygonResponse.data.rankings.edges.slice(
+    0,
+    MAX_OPEN_SEA_POLYGON_ITEMS,
+  )
+
+  const metadata = await withBrowser(async (browser) => {
+    return Promise.all(
+      collections.map(async (collection: OpenSeaPolygonCollection, index: number) => {
+        const {
+          isVerified,
+          logo: imageUrl,
+          name,
+          slug,
+          windowCollectionStats: { floorPrice, numOwners, totalSupply, volume },
+        } = collection.node
+
+        return withPage(browser)(async (page) => {
+          await page.goto(`https://api.opensea.io/api/v1/collection/${slug}?format=json`)
+
+          const pageData = await page.evaluate(() => ({
+            html: document.documentElement.innerHTML,
+          }))
+
+          const $ = cheerio.load(pageData.html)
+
+          const content = $('pre').text()
+
+          const json = JSON.parse(content)
+          const contractMetadata = json.collection.primary_asset_contracts[0]
+          const address = contractMetadata.address
+          const contractType = contractMetadata.schema_name
+            ? contractMetadata.schema_name.toLowerCase()
+            : ''
+
+          return {
+            id: index,
+            address,
+            name,
+            slug,
+            imageUrl,
+            isVerified,
+            numOwners,
+            totalSupply,
+            contractType,
+            floorPrice: floorPrice !== null ? Number(floorPrice.eth) : null,
+            totalVolume: volume !== null ? Number(volume.unit) : null,
+            network: Chains.polygon,
+            updatedAt: Date.now(),
+          }
+        })
+      }),
+    )
+  })
+
+  // Filter out if collection address is not found
+  const metadataFiltered = (metadata as unknown as NFTCollections[]).filter(
+    (collection: { address: string }) => {
+      return collection.address.length !== 0
+    },
+  )
+
+  return fs.writeFile(
+    `${process.cwd()}/public/data/nft-metadata/open-sea-polygon-metadata.json`,
     JSON.stringify(metadataFiltered, null, 2),
     'utf8',
   )
@@ -250,7 +312,7 @@ const QuixoticMetadataCollector = async () => {
         totalVolume: formatGwei(totalVolume),
         contractType: contract_type ? contract_type.toLowerCase().replace('-', '') : '',
         paymentSymbol: 'ETH',
-        network: 10,
+        network: Chains.optimism,
         updatedAt: Date.now(),
       }
     }),
@@ -308,7 +370,7 @@ const StratosMetadataCollector = async () => {
         totalVolume: formatGwei(totalVolume),
         contractType: contract_type ? contract_type.toLowerCase().replace('-', '') : '',
         paymentSymbol: 'ETH',
-        network: 42161,
+        network: Chains.arbitrum,
         updatedAt: Date.now(),
       }
     }),
@@ -321,7 +383,12 @@ const StratosMetadataCollector = async () => {
   )
 }
 
-Promise.all([OpenSeaMetadataCollector(), QuixoticMetadataCollector(), StratosMetadataCollector()])
+Promise.all([
+  OpenSeaMainnetMetadataCollector(),
+  OpenSeaPolygonMetadataCollector(),
+  QuixoticMetadataCollector(),
+  StratosMetadataCollector(),
+])
   .then(() => {
     console.log('Metadata has been collected successfully')
     process.exit()
