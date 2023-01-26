@@ -10,11 +10,14 @@ import { wei } from '@synthetixio/wei'
 import usePrevious from '../common/usePrevious'
 import ENSOrAddress from '@/src/components/aelin/ENSOrAddress'
 import { TokenIcon } from '@/src/components/pools/common/TokenIcon'
-import { AddressWhitelistProps } from '@/src/components/pools/whitelist/addresses/AddressesWhiteList'
+import {
+  AddressWhitelistProps,
+  AddressesWhiteListAmountFormat,
+} from '@/src/components/pools/whitelist/addresses/AddressesWhiteList'
 import { NftType } from '@/src/components/pools/whitelist/nft/nftWhiteListReducer'
 import { ChainsValues, getKeyChainByValue } from '@/src/constants/chains'
 import { contracts } from '@/src/constants/contracts'
-import { EXCHANGE_DECIMALS, ZERO_ADDRESS } from '@/src/constants/misc'
+import { EXCHANGE_DECIMALS, ZERO_ADDRESS, ZERO_BN } from '@/src/constants/misc'
 import { Privacy } from '@/src/constants/pool'
 import { Token } from '@/src/constants/token'
 import {
@@ -88,6 +91,7 @@ export interface CreateUpFrontDealState {
   dealPrivacy?: Privacy
   currentStep: CreateUpFrontDealSteps
   whitelist: AddressWhitelistProps[]
+  whiteListAmountFormat?: AddressesWhiteListAmountFormat
   withMerkleTree: boolean
   nftCollectionRules: NftCollectionRulesProps[]
 }
@@ -109,6 +113,7 @@ export interface CreateUpFrontDealStateComplete {
   exchangeRates: ExchangeRatesAttr
   currentStep: CreateUpFrontDealSteps
   whitelist: AddressWhitelistProps[]
+  whiteListAmountFormat?: AddressesWhiteListAmountFormat
   withMerkleTree: boolean
   nftCollectionRules: NftCollectionRulesProps[]
 }
@@ -310,17 +315,12 @@ export const createDealConfig: Record<CreateUpFrontDealSteps, CreateUpFrontDealS
         value.investmentTokenToRaise > 0 &&
         Number(value.exchangeRates) > 0
       ) {
-        const exchangeRatesInWei = wei(value.exchangeRates, investmentDecimals)
-
-        const dealTokenTotalInWei = wei(value.investmentTokenToRaise, investmentDecimals).mul(
-          exchangeRatesInWei,
-        )
-
-        const investmentPerDeal = wei(value.investmentTokenToRaise, investmentDecimals)
-          .div(dealTokenTotalInWei)
-          .toNumber()
-
         if (!dealTokenSymbol) return '--'
+
+        const exchangeRatesInWei = wei(value.exchangeRates, investmentDecimals)
+        if (!exchangeRatesInWei.gt(ZERO_BN)) return '--'
+
+        const investmentPerDeal = wei(1, investmentDecimals).div(exchangeRatesInWei).toNumber()
 
         return (
           <>
@@ -418,7 +418,7 @@ const initialState: CreateUpFrontDealState = {
   [CreateUpFrontDealSteps.exchangeRates]: {
     investmentTokenToRaise: undefined,
     exchangeRates: undefined,
-    isCapped: false,
+    isCapped: true,
     hasDealMinimum: false,
     minimumAmount: undefined,
   },
@@ -436,6 +436,7 @@ const initialState: CreateUpFrontDealState = {
   },
   currentStep: CreateUpFrontDealSteps.dealAttributes,
   whitelist: [],
+  whiteListAmountFormat: undefined,
   withMerkleTree: false,
   nftCollectionRules: [],
 }
